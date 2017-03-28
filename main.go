@@ -90,7 +90,8 @@ func startProcess(sPod *targetPod, process string) error {
 }
 
 func stopStartProcess(sPod *targetPod, process, action string) error {
-	sUrl := fmt.Sprintf("http://%s:%s/RPC2", sPod.ip, sPod.port)
+	sUrl := fmt.Sprintf("http://%s:%d/RPC2", sPod.ip, sPod.port)
+	fmt.Printf("Starting Supervisor client to %s...", sPod.name)
 	sc := supervisor.New(sUrl, nil)
 	_, err := sc.GetSupervisorVersion()
 	if err != nil {
@@ -98,22 +99,26 @@ func stopStartProcess(sPod *targetPod, process, action string) error {
 	}
 	// wait for process to shut down
 	if action == "stop" {
+		fmt.Printf("Stopping %s in pod %s...", process, sPod.name)
 		success, err := sc.StopProcess(process, true)
 		if err != nil {
 			return fmt.Errorf("Failed to stop process %s in pod %s. Error: %v", process, sPod.name, err.Error())
 		}
 		if success {
+			fmt.Printf("Successfully stopped %s in pod %s.", process, sPod.name)
 			return nil
 		} else {
 			return fmt.Errorf("Failed to stop process %s in pod %s. Non success return. Success: %v", process, sPod.name, success)
 		}
 	}
 	if action == "start" {
+		fmt.Printf("Starting %s in pod %s...", process, sPod.name)
 		success, err := sc.StartProcess(process, true)
 		if err != nil {
 			return fmt.Errorf("Failed to start process %s in pod %s. Error: %v", process, sPod.name, err.Error())
 		}
 		if success {
+			fmt.Printf("Successfully started %s in pod %s.", process, sPod.name)
 			return nil
 		} else {
 			return fmt.Errorf("Failed to start process %s in pod %s. Non success return. Success: %v", process, sPod.name, success)
@@ -157,7 +162,7 @@ func stopAndSnapshot(targetPods map[string]*targetPod, process string) error {
 		if err != nil {
 			return fmt.Errorf("Snapshot error: %v", err.Error())
 		}
-		fmt.Printf("Finished!\n\nSnapshot: %s", snapshotResult.GoString())
+		fmt.Printf("Finished!\n\nSnapshot: %s\n", snapshotResult.GoString())
 	}
 	return nil
 }
@@ -184,46 +189,59 @@ func main() {
 
 	targetPods := make(map[string]*targetPod)
 	// Find all pods that are selected by the service
-	// Need to loop over subset.Ports to search subset.Ports[*].Name for xmlrpc and grab it
 	for _, subset := range endpoints.Subsets {
-		for _, port := range subset.Ports {
-			if port.GetName() == "xmlrpc" {
-				for _, address := range subset.Addresses {
-					targetPods[address.TargetRef.GetName()] = &targetPod{name: address.TargetRef.GetName(), ip: address.GetIp(), port: port.GetPort()}
-				}
-			}
+		for _, address := range subset.Addresses {
+			targetPods[address.TargetRef.GetName()] = &targetPod{name: address.TargetRef.GetName(), ip: address.GetIp()}
 		}
 	}
 	if len(targetPods) == 0 {
-		fmt.Printf("Unable to find any pods with a port names \"xmlrpc\" using service %s. Exiting...\n", *kubeService)
+		fmt.Printf("Unable to find any pods using service %s. Exiting...\n", *kubeService)
 		os.Exit(1)
 	}
 	// Get every 'targetPod' so that we can get the AWS Vol Id.
-	for podName, _ := range targetPods {
+	for podName, podStruct := range targetPods {
 		p, err := client.CoreV1().GetPod(ctx, podName, *kubeNamespace)
 		if err != nil {
 			fmt.Println("Error: ", err.Error())
 			os.Exit(1)
 		}
-		vols := p.Spec.Volumes
-		for _, vol := range vols {
-			awsVol := vol.VolumeSource.GetAwsElasticBlockStore()
-			if awsVol == nil {
-				continue
+		p.Spec.Containers[0].Ports[0].GetName()
+		for _, containers := range p.Spec.Containers {
+			for _, port := range containers.Ports {
+				if port.GetName() == "xmlrpc" {
+					//podStruct = &targetPod{port: port.GetContainerPort()}
+					podStruct.port = port.GetContainerPort()
+					vols := p.Spec.Volumes
+					for _, vol := range vols {
+						awsVol := vol.VolumeSource.GetAwsElasticBlockStore()
+						if awsVol == nil {
+							continue
+						}
+						if podStruct.volId != "" {
+							fmt.Println("Pod %s has more than one AWS Volume attached. Exiting...\n", p.Metadata.GetName())
+							os.Exit(1)
+						}
+						podStruct.volId = awsVol.GetVolumeID()
+						podStruct.volName = vol.GetName()
+					}
+				}
 			}
-			if targetPods[p.Metadata.GetName()].volId != "" {
-				fmt.Println("Pod %s has more than one AWS Volume attached. Exiting...\n", p.Metadata.GetName())
-				os.Exit(1)
-			}
-			targetPods[p.Metadata.GetName()].volId = awsVol.GetVolumeID()
-			targetPods[p.Metadata.GetName()].volName = vol.GetName()
 		}
-
+	}
+	check := 0
+	for _, podStruct := range targetPods {
+		if podStruct.port == 0 || podStruct.volId == "" {
+			check++
+		}
+	}
+	if check == len(targetPods) {
+		fmt.Println("No pods in service %s has \"xmlrpc\" named port or attached AWS EBS volume. Exiting.")
+		os.Exit(1)
 	}
 	// stop and snapshot
 	err2 := stopAndSnapshot(targetPods, "kafka")
 	if err2 != nil {
-		fmt.Println(err.Error())
+		fmt.Println(err2.Error())
 		os.Exit(1)
 	}
 
