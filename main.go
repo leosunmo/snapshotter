@@ -91,7 +91,7 @@ func startProcess(sPod *targetPod, process string) error {
 
 func stopStartProcess(sPod *targetPod, process, action string) error {
 	sUrl := fmt.Sprintf("http://%s:%d/RPC2", sPod.ip, sPod.port)
-	fmt.Printf("Starting Supervisor client to %s...", sPod.name)
+	fmt.Printf("Starting Supervisor client to %s...\n", sPod.name)
 	sc := supervisor.New(sUrl, nil)
 	_, err := sc.GetSupervisorVersion()
 	if err != nil {
@@ -99,26 +99,26 @@ func stopStartProcess(sPod *targetPod, process, action string) error {
 	}
 	// wait for process to shut down
 	if action == "stop" {
-		fmt.Printf("Stopping %s in pod %s...", process, sPod.name)
+		fmt.Printf("Stopping %s in pod %s... ", process, sPod.name)
 		success, err := sc.StopProcess(process, true)
 		if err != nil {
 			return fmt.Errorf("Failed to stop process %s in pod %s. Error: %v", process, sPod.name, err.Error())
 		}
 		if success {
-			fmt.Printf("Successfully stopped %s in pod %s.", process, sPod.name)
+			fmt.Printf("Successfully stopped %s in pod %s.\n", process, sPod.name)
 			return nil
 		} else {
 			return fmt.Errorf("Failed to stop process %s in pod %s. Non success return. Success: %v", process, sPod.name, success)
 		}
 	}
 	if action == "start" {
-		fmt.Printf("Starting %s in pod %s...", process, sPod.name)
+		fmt.Printf("Starting %s in pod %s... ", process, sPod.name)
 		success, err := sc.StartProcess(process, true)
 		if err != nil {
 			return fmt.Errorf("Failed to start process %s in pod %s. Error: %v", process, sPod.name, err.Error())
 		}
 		if success {
-			fmt.Printf("Successfully started %s in pod %s.", process, sPod.name)
+			fmt.Printf("Successfully started %s in pod %s.\n", process, sPod.name)
 			return nil
 		} else {
 			return fmt.Errorf("Failed to start process %s in pod %s. Non success return. Success: %v", process, sPod.name, success)
@@ -146,7 +146,7 @@ func newSnapshotConfig(svc, volId string) ec2.CreateSnapshotInput {
 }
 
 func stopAndSnapshot(targetPods map[string]*targetPod, process string) error {
-	// Iterate through the pods and stop Kafka
+	// Iterate through the pods and stop contProcess
 	defer startProcessAllPods(targetPods, process)
 	err := stopProcessAllPods(targetPods, process)
 	if err != nil {
@@ -167,14 +167,43 @@ func stopAndSnapshot(targetPods map[string]*targetPod, process string) error {
 	return nil
 }
 
+func checkAndClean(tempTargetPods map[string]*targetPod) (error, map[string]*targetPod) {
+	targetPods := tempTargetPods
+	check := 0
+	for podName, podStruct := range targetPods {
+		if podStruct.port == 0 || podStruct.volId == "" {
+			check++
+			delete(targetPods, podName)
+		}
+	}
+	if check == len(targetPods) || len(targetPods) < 1 {
+		return fmt.Errorf("No pods in service %s has \"xmlrpc\" named port or attached AWS EBS volume. Exiting."), targetPods
+	}
+	return nil, targetPods
+}
+
 func main() {
 	kubeconfigPath := flag.String("kubeconfig", "./config", "path to the kubeconfig file")
 	inCluster := flag.Bool("in-cluster", false, "Use in-cluster credentials")
 	kubeContext := flag.String("context", "", "override current-context (default 'current-context' in kubeconfig)")
 	kubeNamespace := flag.String("namespace", "", "specific namespace (default all namespaces)")
 	kubeService := flag.String("service", "", "Service to use for pod discovery")
+	contProcess := flag.String("process", "", "Process to stop inside container")
 	flag.Parse()
 
+	flagCheck := *contProcess
+	if flagCheck == "" {
+		fmt.Println("\"-process\" required.")
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	flagCheck = *kubeService
+	if flagCheck == "" {
+		fmt.Println("\"-service\" required.")
+		flag.Usage()
+		os.Exit(1)
+	}
 	//uses the current context in kubeconfig unless overriden using '-context'
 	client, err := loadClient(*kubeconfigPath, *kubeContext, *inCluster)
 	if err != nil {
@@ -228,18 +257,21 @@ func main() {
 			}
 		}
 	}
-	check := 0
-	for _, podStruct := range targetPods {
-		if podStruct.port == 0 || podStruct.volId == "" {
-			check++
-		}
+	// Clean up pods and remove the ones that do not have XMLRPC or AWS VOL
+	for _, pod := range targetPods {
+		fmt.Println("Pod: ", pod.name, "\nPort: ", pod.port, "\nVolId: ", pod.volId)
 	}
-	if check == len(targetPods) {
-		fmt.Println("No pods in service %s has \"xmlrpc\" named port or attached AWS EBS volume. Exiting.")
+
+	cleanErr, finalPods := checkAndClean(targetPods)
+	if cleanErr != nil {
+		fmt.Println(cleanErr.Error())
 		os.Exit(1)
 	}
+	for _, pod := range finalPods {
+		fmt.Println("Pod: ", pod.name, "\nPort: ", pod.port, "\nVolId: ", pod.volId)
+	}
 	// stop and snapshot
-	err2 := stopAndSnapshot(targetPods, "kafka")
+	err2 := stopAndSnapshot(finalPods, *contProcess)
 	if err2 != nil {
 		fmt.Println(err2.Error())
 		os.Exit(1)
