@@ -265,10 +265,6 @@ func main() {
 		}
 	}
 	// Clean up pods and remove the ones that do not have XMLRPC or AWS VOL
-	for _, pod := range targetPods {
-		fmt.Println("Pod: ", pod.name, "\nPort: ", pod.port, "\nVolId: ", pod.volId)
-	}
-
 	cleanErr, finalPods := checkAndClean(targetPods)
 	if cleanErr != nil {
 		fmt.Println(cleanErr.Error())
