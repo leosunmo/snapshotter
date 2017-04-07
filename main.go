@@ -186,7 +186,7 @@ func main() {
 	kubeconfigPath := flag.String("kubeconfig", "./config", "path to the kubeconfig file")
 	inCluster := flag.Bool("in-cluster", false, "Use in-cluster credentials")
 	kubeContext := flag.String("context", "", "override current-context (default 'current-context' in kubeconfig)")
-	kubeNamespace := flag.String("namespace", "", "specific namespace (default all namespaces)")
+	kubeNamespace := flag.String("namespace", "", "Namespace of the pods and service")
 	kubeService := flag.String("service", "", "Service to use for pod discovery")
 	contProcess := flag.String("process", "", "Process to stop inside container")
 	flag.Parse()
@@ -201,6 +201,13 @@ func main() {
 	flagCheck = *kubeService
 	if flagCheck == "" {
 		fmt.Println("\"-service\" required.")
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	flagCheck = *kubeNamespace
+	if flagCheck == "" {
+		fmt.Println("\"-namespace\" required.")
 		flag.Usage()
 		os.Exit(1)
 	}
