@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -145,12 +147,30 @@ func newSnapshotConfig(svc, volId string) ec2.CreateSnapshotInput {
 	return snapshotConfig
 }
 
-func stopAndSnapshot(targetPods map[string]*targetPod, process string) error {
+func stopAndSnapshot(targetPods map[string]*targetPod, process string, notifyUrl *string, stopNotifyData *string, startNotifyData *string) error {
 	// Iterate through the pods and stop contProcess
-	defer startProcessAllPods(targetPods, process)
+	defer func() {
+		err := startProcessAllPods(targetPods, process)
+		if err != nil {
+			fmt.Println("Error: ", err.Error())
+			os.Exit(1)
+		}
+		if *notifyUrl != "" {
+			_, err := http.Post(*notifyUrl, "application/json", bytes.NewBuffer([]byte(*startNotifyData)))
+			if err != nil {
+				fmt.Println("Error: ", err.Error())
+			}
+		}
+	}()
 	err := stopProcessAllPods(targetPods, process)
 	if err != nil {
 		return err
+	}
+	if *notifyUrl != "" {
+		_, err := http.Post(*notifyUrl, "application/json", bytes.NewBuffer([]byte(*stopNotifyData)))
+		if err != nil {
+			return err
+		}
 	}
 
 	// new AWS client to start snapshot jobs on all the awsvols from the pods.
@@ -189,6 +209,9 @@ func main() {
 	kubeNamespace := flag.String("namespace", "", "Namespace of the pods and service")
 	kubeService := flag.String("service", "", "Service to use for pod discovery")
 	contProcess := flag.String("process", "", "Process to stop inside container")
+	startStopNotifyUrl := flag.String("start-stop-notify-url", "", "URL to send a POST request to with (start/stop)-notify-data when starting/stopping the service")
+	startNotifyData := flag.String("start-notify-data", "", "Data to send to the notify url on start of the service")
+	stopNotifyData := flag.String("stop-notify-data", "", "Data to send to the notify url on stop of the service")
 	flag.Parse()
 
 	flagCheck := *contProcess
@@ -274,7 +297,7 @@ func main() {
 		fmt.Println("Pod: ", pod.name, "\nPort: ", pod.port, "\nVolId: ", pod.volId)
 	}
 	// stop and snapshot
-	err2 := stopAndSnapshot(finalPods, *contProcess)
+	err2 := stopAndSnapshot(finalPods, *contProcess, startStopNotifyUrl, stopNotifyData, startNotifyData)
 	if err2 != nil {
 		fmt.Println(err2.Error())
 		os.Exit(1)
