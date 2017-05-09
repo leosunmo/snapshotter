@@ -107,8 +107,15 @@ func stopStartProcess(sPod *targetPod, process, action string) error {
 			return fmt.Errorf("Failed to stop process %s in pod %s. Error: %v", process, sPod.name, err.Error())
 		}
 		if success {
-			fmt.Printf("Successfully stopped %s in pod %s.\n", process, sPod.name)
-			return nil
+			for i := 0; i < 5; i++ {
+				pi, piErr := sc.GetProcessInfo(process)
+				if piErr == nil && pi.State == 0 {
+					fmt.Printf("Successfully stopped %s in pod %s.\n", process, sPod.name)
+					return nil
+				}
+				time.Sleep(2 * time.Second)
+			}
+			return fmt.Errorf("Failed to verify that %s stopped in pod %s. Exiting.", process, sPod.name)
 		} else {
 			return fmt.Errorf("Failed to stop process %s in pod %s. Non success return. Success: %v", process, sPod.name, success)
 		}
@@ -120,7 +127,15 @@ func stopStartProcess(sPod *targetPod, process, action string) error {
 			return fmt.Errorf("Failed to start process %s in pod %s. Error: %v", process, sPod.name, err.Error())
 		}
 		if success {
-			fmt.Printf("Successfully started %s in pod %s.\n", process, sPod.name)
+			for i := 0; i < 5; i++ {
+				pi, piErr := sc.GetProcessInfo(process)
+				if piErr == nil && pi.State == 20 {
+					fmt.Printf("Successfully started %s in pod %s.\n", process, sPod.name)
+					return nil
+				}
+				time.Sleep(2 * time.Second)
+			}
+			fmt.Println("Failed to verify that %s started successfull in pod %s. Continuing anyway.", process, sPod.name)
 			return nil
 		} else {
 			return fmt.Errorf("Failed to start process %s in pod %s. Non success return. Success: %v", process, sPod.name, success)
