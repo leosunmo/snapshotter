@@ -171,21 +171,32 @@ func stopAndSnapshot(targetPods map[string]*targetPod, process string, notifyUrl
 			os.Exit(1)
 		}
 		if *notifyUrl != "" {
-			_, err := http.Post(*notifyUrl, "application/json", bytes.NewBuffer([]byte(*startNotifyData)))
+			res, err := http.Post(*notifyUrl, "application/json", bytes.NewBuffer([]byte(*startNotifyData)))
 			if err != nil {
 				fmt.Println("Error: ", err.Error())
 			}
+			responseData, err := ioutil.ReadAll(res.Body)
+			if err != nil {
+				fmt.Println("Error: ", err.Error())
+			}
+			fmt.Println("Response from notify url: " + string(responseData))
 		}
 	}()
-	err := stopProcessAllPods(targetPods, process)
-	if err != nil {
-		return err
-	}
 	if *notifyUrl != "" {
-		_, err := http.Post(*notifyUrl, "application/json", bytes.NewBuffer([]byte(*stopNotifyData)))
+		res, err := http.Post(*notifyUrl, "application/json", bytes.NewBuffer([]byte(*stopNotifyData)))
 		if err != nil {
 			return err
 		}
+		responseData, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			return err
+		}
+		fmt.Println("Response from notify url: " + string(responseData))
+	}
+
+	err := stopProcessAllPods(targetPods, process)
+	if err != nil {
+		return err
 	}
 
 	// new AWS client to start snapshot jobs on all the awsvols from the pods.
