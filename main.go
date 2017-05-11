@@ -193,7 +193,8 @@ func stopAndSnapshot(targetPods map[string]*targetPod, process string, notifyUrl
 		}
 		fmt.Println("Response from notify url: " + string(responseData))
 	}
-
+	// Sleep to give the brokers some time to catch up and potentially change partition leadership.
+	time.Sleep(10 * time.Second)
 	err := stopProcessAllPods(targetPods, process)
 	if err != nil {
 		return err
