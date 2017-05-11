@@ -107,7 +107,7 @@ func stopStartProcess(sPod *targetPod, process, action string) error {
 			return fmt.Errorf("Failed to stop process %s in pod %s. Error: %v", process, sPod.name, err.Error())
 		}
 		if success {
-			for i := 0; i < 5; i++ {
+			for i := 0; i < 10; i++ {
 				pi, piErr := sc.GetProcessInfo(process)
 				if piErr == nil && pi.State == 0 {
 					fmt.Printf("Successfully stopped %s in pod %s.\n", process, sPod.name)
