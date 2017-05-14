@@ -168,7 +168,6 @@ func stopAndSnapshot(targetPods map[string]*targetPod, process string, notifyUrl
 		err := startProcessAllPods(targetPods, process)
 		if err != nil {
 			fmt.Println("Error: ", err.Error())
-			os.Exit(1)
 		}
 		if *notifyUrl != "" {
 			res, err := http.Post(*notifyUrl, "application/json", bytes.NewBuffer([]byte(*startNotifyData)))
@@ -199,7 +198,8 @@ func stopAndSnapshot(targetPods map[string]*targetPod, process string, notifyUrl
 	if err != nil {
 		return err
 	}
-
+	// Give Kafka time to flush to disk. The last broker to shut down before EC2 snapshot is always the one that has to recover. Sleep might help.
+	time.Sleep(10 * time.Second)
 	// new AWS client to start snapshot jobs on all the awsvols from the pods.
 	ec2Client := newEC2Client("us-east-1")
 	for _, sPod := range targetPods {
